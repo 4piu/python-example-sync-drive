@@ -16,10 +16,12 @@ class App(threading.Thread):
         self._peer_mgr = PeerMgr(kwargs["peer_ips"], encryption=kwargs["encryption"], psk=kwargs["psk"])
 
     def run(self) -> None:
+        self._file_mgr.run()
         while self.running:
             pass
         print("App stopped")
 
     def stop(self):
-        print("Stopping app")
+        print("\nStopping app")
+        self._file_mgr.stop()
         self.running = False
