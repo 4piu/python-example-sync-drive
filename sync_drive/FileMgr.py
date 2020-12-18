@@ -2,7 +2,9 @@ from enum import Enum, auto
 from io import BufferedRandom
 from pathlib import Path
 from typing import Callable
+
 from numpy import array
+
 
 class FileMgr:
     # class static vars
@@ -44,7 +46,6 @@ class FileMgr:
         # update last_modified
         # call event listener
 
-
     async def get_file_handler(self, file: Path, mode: str) -> BufferedRandom:
         pass
         # if node is write:
@@ -79,4 +80,4 @@ class FileMgr:
 class FileStatus(Enum):
     ADDED = auto()
     HASHING = auto()
-    DOWNLOADING = auto()
+    WRITING = auto()

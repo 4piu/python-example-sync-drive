@@ -12,7 +12,7 @@ def main():
         encryption: bool = "--encryption" in sys.argv and sys.argv[sys.argv.index("--encryption") + 1].lower() in [
             "yes", "y", "true", "on"]
         # start main app loop
-        app = App(peer_ips=ips, working_dir=".", encryption=encryption, psk=config.pre_shared_key)
+        app = App(peer_ips=ips, working_dir="./share", encryption=encryption, psk=config.pre_shared_key)
         app.start()
         app.join()
     except KeyboardInterrupt:
