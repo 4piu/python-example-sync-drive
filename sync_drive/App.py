@@ -17,6 +17,7 @@ class App(threading.Thread):
 
     def run(self) -> None:
         self._file_mgr.run()
+        self._peer_mgr.run()
         while self.running:
             pass
         print("App stopped")
@@ -24,4 +25,5 @@ class App(threading.Thread):
     def stop(self):
         print("\nStopping app")
         self._file_mgr.stop()
+        self._peer_mgr.stop()
         self.running = False
