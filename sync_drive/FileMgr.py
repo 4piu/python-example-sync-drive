@@ -1,15 +1,15 @@
 import asyncio
 import hashlib
-from enum import Enum, auto
+from enum import Enum
 from multiprocessing import Pool
 from pathlib import Path
 from typing import Callable
 
 
 class FileStatus(Enum):
-    ADDED = auto()
-    HASHING = auto()
-    WRITING = auto()
+    ADDED = 0
+    HASHING = 1
+    WRITING = 2
 
 
 class FileMgr:
@@ -36,6 +36,7 @@ class FileMgr:
         print("File watcher started")
 
     def stop(self):
+        print("Stopping FileMgr")
         # stop file hash task
         self._proc_pool.close()
         self._proc_pool.terminate()
@@ -86,8 +87,11 @@ class FileMgr:
             "status": FileStatus.ADDED
         })
 
-    async def set_file_status(self, file: Path, status: FileStatus):
-        self._file_index[str(file)]["status"] = status
+    async def update_file_index(self, file: str, prop: dict):
+        if file not in self._file_index.keys():
+            self._file_index[file] = prop
+        else:
+            self._file_index[file].update(prop)
 
     async def _scan_change(self):
         while True:
