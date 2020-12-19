@@ -1,4 +1,5 @@
 import sys
+import traceback
 
 import config
 from sync_drive.App import App
@@ -13,13 +14,14 @@ def main():
             "yes", "y", "true", "on"]
         # start main app loop
         app = App(peer_ips=ips, working_dir="./share", encryption=encryption, psk=config.pre_shared_key)
-        app.start()
-        app.join()
+        app.run()
     except KeyboardInterrupt:
-        if app: app.stop()
+        # shut down gracefully
+        if app:
+            app.stop()
     except:
-        print("Usage example: main.py --ip 192.168.1.101,192.168.1.102 --encryption yes")
-        exit(1)
+        traceback.print_exc()
+        print("\nUsage example: main.py --ip 192.168.1.101,192.168.1.102 --encryption yes")
 
 
 if __name__ == '__main__':
