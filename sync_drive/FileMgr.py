@@ -81,7 +81,6 @@ class FileMgr:
             return ret
 
         # calculate file hash
-        print(f"Calculating hash for {file}")
         args = list()
         for blk in split_number(file.stat().st_size, self._file_block_size):
             args.append((file, blk[0], blk[1]))
@@ -90,7 +89,6 @@ class FileMgr:
             "hash": self._proc_pool.starmap(get_file_hash, args),
             "status": FileStatus.ADDED
         })
-        print(f"{file} hashed complete")
 
     async def update_file_index(self, file: str, prop: dict):
         if file not in self.file_index:
@@ -106,7 +104,7 @@ class FileMgr:
         while True:
             changed_items = list()
             for item in self._working_dir.rglob("*"):
-                if item.name.startswith("."):   # ignore hidden file
+                if item.name.startswith("."):  # ignore hidden file
                     continue
                 path = str(item)
                 # compare index
@@ -114,6 +112,7 @@ class FileMgr:
                     print(f"Found new item: {path}")
                     changed_items.append((item, "new"))
                     if item.is_file():
+                        # update index
                         self.file_index[path] = {
                             "is_file": True,
                             "size": item.stat().st_size,

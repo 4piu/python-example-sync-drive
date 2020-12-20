@@ -44,33 +44,28 @@ class App:
         print("App stopped")
 
     async def file_change_handler(self, changed_items: list):
-        print("Handle file change")
         # build file change list
         changed_index = dict()
         for file, operation in changed_items:
             if file.is_file():  # wait hash complete for modified file
-                print(f"Waiting hash for {file}")
                 await self._file_mgr.till_hash_complete(str(file))
-                print(f"{file} hashed")
             changed_index[str(file)] = self._file_mgr.file_index[str(file)]
         # announce change to other peer
         for ip in self._peer_mgr.peers:
-            print(f"Announcing file change to {ip}")
             try:
                 await self._peer_mgr.request_index_update(ip, changed_index)
             except:
-                print(f"Cannot announce file change to {ip}")
+                print(f"Failed connect to {ip} for index update")
 
     async def peer_mgr_started_handler(self):
-        print("Handle PeerMgr started")
         for ip in self._peer_mgr.peers:
             try:
-                await self._peer_mgr.request_index(ip, self._file_mgr.file_index)
+                index = await self._peer_mgr.request_index(ip, self._file_mgr.file_index)
+                await self.sync(index, ip)
             except:
-                pass
+                print(f"Failed connect to {ip} for index exchange")
 
     async def file_written_handler(self, file: str):
-        print("Handle file written")
         # set file modified time
         mod_time = self._file_mgr.file_index[file]["modified_time"]
         os.utime(file, (mod_time, mod_time))
@@ -80,7 +75,6 @@ class App:
         })
 
     async def request_index_handler(self, writer: StreamWriter, client_index: dict):
-        print("Handle request index")
         client_ip = writer.get_extra_info("peername")[0]
         # response with local index
         local_index = pickle.dumps(self._file_mgr.file_index)
@@ -92,7 +86,7 @@ class App:
         await self.sync(client_index, client_ip)
 
     async def sync(self, client_index: dict, client_ip: str):
-        # check missing file
+        # compare file index
         new_folders = list()
         new_files = list()
         modified_files = list()
@@ -118,6 +112,7 @@ class App:
 
     async def sync_new_folder(self, folders: list):
         for path in folders:
+            print(f"Creating directory {path}")
             # create local folder
             Path(path).mkdir(parents=True, exist_ok=True)
             # add index
@@ -151,7 +146,6 @@ class App:
                 await self._peer_mgr.request_file(client_ip, path, i, config.file_block_size)
 
     async def request_index_update_handler(self, writer: StreamWriter, client_index: dict):
-        print("handle request index update")
         client_ip = writer.get_extra_info("peername")[0]
         # response
         data = b"OK"
@@ -163,7 +157,6 @@ class App:
         await self.sync(client_index, client_ip)
 
     async def request_file_handler(self, writer: StreamWriter, file_path: str, block_index: int):
-        print("Handle request file")
         with open(file_path, mode="r+b") as f:
             f.seek(block_index * config.file_block_size)
             data = f.read(config.file_block_size)

@@ -67,13 +67,11 @@ class PeerMgr:
             self.peers[ip].update({
                 "is_online": True
             })
-            print(f"Connected to {ip} successfully")
             return reader, writer
         except Exception as e:
             self.peers[ip].update({
                 "is_online": False
             })
-            print(f"Connect to {ip} failed")
             raise e
 
     async def _conn_handler(self, reader: StreamReader, writer: StreamWriter):
@@ -81,7 +79,6 @@ class PeerMgr:
         if client_ip not in self.peers:  # only allow connection from peers
             writer.close()
             print(f"Refuse connection from {client_ip}")
-        print(f"Connection from {client_ip}")
         # update online status
         self.peers[client_ip].update({
             "is_online": True
@@ -91,18 +88,22 @@ class PeerMgr:
         msg_length = int.from_bytes(await reader.read(8), "big")
         if msg_type == MsgType.REQ_INDEX and self._event_listener["on_request_index"]:
             client_index = pickle.loads(await reader.read(msg_length))
+            print(f"{client_ip} request index exchange")
             await self._event_listener["on_request_index"](writer, client_index)
         elif msg_type == MsgType.REQ_INDEX_UPDATE and self._event_listener["on_request_index_update"]:
             client_index = pickle.loads(await reader.read(msg_length))
+            print(f"{client_ip} request index update")
             await self._event_listener["on_request_index_update"](writer, client_index)
         elif msg_type == MsgType.REQ_FILE and self._event_listener["on_request_file"]:
             msg = pickle.loads(await reader.read(msg_length))
+            print(f"{client_ip} request file {msg['file_path']} blk:{msg['block_index']}")
             await self._event_listener["on_request_file"](writer, msg["file_path"], msg["block_index"])
         else:
             writer.close()
             print(f"Invalid message from {client_ip}")
 
     async def request_index(self, ip: str, local_index: dict) -> dict:
+        print(f"Request index exchange with {ip}")
         # send message
         reader, writer = await self._get_peer_conn(ip)
         writer.write(int.to_bytes(MsgType.REQ_INDEX.value, 1, "big"))
@@ -122,6 +123,7 @@ class PeerMgr:
         return file_index
 
     async def request_index_update(self, ip: str, changed_index: dict):
+        print(f"Request index update of {ip}")
         # send message
         reader, writer = await self._get_peer_conn(ip)
         writer.write(int.to_bytes(MsgType.REQ_INDEX_UPDATE.value, 1, "big"))
@@ -140,6 +142,7 @@ class PeerMgr:
         writer.close()
 
     async def request_file(self, ip: str, file: str, block_index: int, block_size: int):
+        print(f"Request {file} blk:{block_index} from {ip}")
         # send message
         reader, writer = await self._get_peer_conn(ip)
         writer.write(int.to_bytes(MsgType.REQ_FILE.value, 1, "big"))
