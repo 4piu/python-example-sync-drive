@@ -28,6 +28,9 @@ class FileMgr:
         self._proc_pool = Pool()
         self._working_dir = working_dir
         self._file_block_size = file_block_size
+        # create working dir if not exists
+        if not Path(working_dir).exists():
+            Path.mkdir(working_dir)
 
     def run(self):
         loop = asyncio.get_event_loop()
@@ -78,6 +81,7 @@ class FileMgr:
             return ret
 
         # calculate file hash
+        print(f"Calculating hash for {file}")
         args = list()
         for blk in split_number(file.stat().st_size, self._file_block_size):
             args.append((file, blk[0], blk[1]))
@@ -86,6 +90,7 @@ class FileMgr:
             "hash": self._proc_pool.starmap(get_file_hash, args),
             "status": FileStatus.ADDED
         })
+        print(f"{file} hashed complete")
 
     async def update_file_index(self, file: str, prop: dict):
         if file not in self.file_index:
@@ -93,14 +98,16 @@ class FileMgr:
         else:
             self.file_index[file].update(prop)
 
-    async def till_hash_complete(self, file: Path):
-        while self.file_index[str(file)]["status"] == FileStatus.HASHING:
-            pass
+    async def till_hash_complete(self, file: str):
+        while self.file_index[file]["status"] == FileStatus.HASHING:
+            await asyncio.sleep(.1)
 
     async def _scan_change(self):
         while True:
             changed_items = list()
             for item in self._working_dir.rglob("*"):
+                if item.name.startswith("."):   # ignore hidden file
+                    continue
                 path = str(item)
                 # compare index
                 if path not in self.file_index:  # new item
@@ -113,6 +120,8 @@ class FileMgr:
                             "modified_time": item.stat().st_mtime,
                             "status": FileStatus.HASHING
                         }
+                        # hash file (don't wait)
+                        asyncio.get_event_loop().create_task(self._hash_file(item))
                     elif item.is_dir():
                         self.file_index[path] = {
                             "is_file": False

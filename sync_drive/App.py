@@ -1,4 +1,5 @@
 import asyncio
+import os
 import pickle
 import zlib
 from asyncio import StreamWriter
@@ -6,7 +7,7 @@ from asyncore import loop
 from pathlib import Path
 
 import config
-from sync_drive.FileMgr import FileMgr
+from sync_drive.FileMgr import FileMgr, FileStatus
 from sync_drive.PeerMgr import PeerMgr, MsgType
 
 
@@ -16,7 +17,7 @@ class App:
     _peer_mgr: PeerMgr
 
     def __init__(self, **kwargs):
-        self._file_mgr = FileMgr(Path(kwargs["working_dir"]), config.file_block_size * 1000000)
+        self._file_mgr = FileMgr(Path(kwargs["working_dir"]), config.file_block_size)
         self._peer_mgr = PeerMgr(kwargs["peer_ips"], config.listen_port, compression=config.enable_gzip,
                                  encryption=kwargs["encryption"], psk=kwargs["psk"])
 
@@ -42,27 +43,43 @@ class App:
         print("App stopped")
 
     async def file_change_handler(self, changed_items: list):
+        print("Handle file change")
         # build file change list
         changed_index = dict()
         for file, operation in changed_items:
             if file.is_file():  # wait hash complete for modified file
-                await self._file_mgr.till_hash_complete(file)
+                print(f"Waiting hash for {file}")
+                await self._file_mgr.till_hash_complete(str(file))
+                print(f"{file} hashed")
             changed_index[str(file)] = self._file_mgr.file_index[str(file)]
         # announce change to other peer
         for ip in self._peer_mgr.peers:
+            print(f"Announcing file change to {ip}")
             try:
                 await self._peer_mgr.request_index_update(ip, changed_index)
             except:
                 print(f"Cannot announce file change to {ip}")
 
     async def peer_mgr_started_handler(self):
+        print("Handle PeerMgr started")
         for ip in self._peer_mgr.peers:
             try:
                 await self._peer_mgr.request_index(ip, self._file_mgr.file_index)
             except:
                 pass
 
+    async def file_written_handler(self, file: str):
+        print("Handle file written")
+        # set file modified time
+        mod_time = self._file_mgr.file_index[file]["modified_time"]
+        os.utime(file, (mod_time, mod_time))
+        # set file index
+        await self._file_mgr.update_file_index(file, {
+            "status": FileStatus.ADDED
+        })
+
     async def request_index_handler(self, writer: StreamWriter, client_index: dict):
+        print("Handle request index")
         client_ip = writer.get_extra_info("peername")[0]
         # response with local index
         local_index = pickle.dumps(self._file_mgr.file_index)
@@ -100,20 +117,40 @@ class App:
 
     async def sync_new_folder(self, folders: list):
         for path in folders:
+            # create local folder
             Path(path).mkdir(parents=True, exist_ok=True)
-            self._file_mgr.file_index[path] = {"is_file": False}
+            # add index
+            await self._file_mgr.update_file_index(path, {"is_file": False})
 
     async def sync_new_file(self, files: list, client_ip: str):
         for path, info in files:
+            # create empty file
+            with open(path, "wb+") as f:
+                f.truncate(info["size"])
+            # add index
+            await self._file_mgr.update_file_index(path, {
+                "is_file": True,
+                "size": info["size"],
+                "modified_time": info["modified_time"],
+                "status": FileStatus.WRITING,
+                "hash": info["hash"]
+            })
             for i in range(len(info["hash"])):
                 await self._peer_mgr.request_file(client_ip, path, i, config.file_block_size)
 
     async def sync_modified_file(self, files: list, client_ip: str):
         for path, info, index in files:
+            # update index
+            await self._file_mgr.update_file_index(path, {
+                "modified_time": info["modified_time"],
+                "status": FileStatus.WRITING,
+                "hash": info["hash"]
+            })
             for i in index:
                 await self._peer_mgr.request_file(client_ip, path, i, config.file_block_size)
 
     async def request_index_update_handler(self, writer: StreamWriter, client_index: dict):
+        print("handle request index update")
         client_ip = writer.get_extra_info("peername")[0]
         # response
         data = b"OK"
@@ -125,6 +162,7 @@ class App:
         await self.sync(client_index, client_ip)
 
     async def request_file_handler(self, writer: StreamWriter, file_path: str, block_index: int):
+        print("Handle request file")
         with open(file_path, mode="r+b") as f:
             f.seek(block_index * config.file_block_size)
             data = f.read(config.file_block_size)

@@ -4,8 +4,6 @@ import zlib
 from asyncio import StreamWriter, StreamReader
 from asyncio.base_events import Server
 from enum import Enum
-from io import BufferedRandom
-from pathlib import Path
 from typing import Callable
 
 
@@ -34,6 +32,7 @@ class PeerMgr:
         self._psk = psk
         self._event_listener = {
             "on_started": None,
+            "on_file_written": None,
             "on_request_index": None,
             "on_request_index_update": None,
             "on_request_file": None
@@ -154,15 +153,19 @@ class PeerMgr:
         # receive response
         msg_type = MsgType(int.from_bytes(await reader.read(1), "big"))
         msg_length = int.from_bytes(await reader.read(8), "big")
-        if msg_type != MsgType.RES_INDEX_UPDATE:
+        if msg_type != MsgType.RES_FILE:
             writer.close()
             print(f"Invalid response from {ip}")
             raise Exception("Invalid response")
-        with open(file, mode="r+b") as f:
+        # write file
+        with open(file, mode="w+b") as f:
             f.seek(block_index * block_size)
-            data = await reader.read(block_size)
+            data = await reader.read(msg_length)
             if self._compression:
                 data = zlib.decompress(data)
             f.write(data)
             f.close()
+        # on file written callback
+        if self._event_listener["on_file_written"]:
+            await self._event_listener["on_file_written"](file)
         writer.close()
