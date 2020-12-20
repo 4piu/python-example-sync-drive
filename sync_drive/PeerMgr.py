@@ -32,7 +32,7 @@ class PeerMgr:
         self._psk = psk
         self._event_listener = {
             "on_started": None,
-            "on_file_written": None,
+            # "on_file_written": None,
             "on_request_index": None,
             "on_request_index_update": None,
             "on_request_file": None
@@ -84,18 +84,18 @@ class PeerMgr:
             "is_online": True
         })
         # get message
-        msg_type = MsgType(int.from_bytes(await reader.read(1), "big"))
-        msg_length = int.from_bytes(await reader.read(8), "big")
+        msg_type = MsgType(int.from_bytes(await reader.readexactly(1), "big"))
+        msg_length = int.from_bytes(await reader.readexactly(8), "big")
         if msg_type == MsgType.REQ_INDEX and self._event_listener["on_request_index"]:
-            client_index = pickle.loads(await reader.read(msg_length))
+            client_index = pickle.loads(await reader.readexactly(msg_length))
             print(f"{client_ip} request index exchange")
             await self._event_listener["on_request_index"](writer, client_index)
         elif msg_type == MsgType.REQ_INDEX_UPDATE and self._event_listener["on_request_index_update"]:
-            client_index = pickle.loads(await reader.read(msg_length))
+            client_index = pickle.loads(await reader.readexactly(msg_length))
             print(f"{client_ip} request index update")
             await self._event_listener["on_request_index_update"](writer, client_index)
         elif msg_type == MsgType.REQ_FILE and self._event_listener["on_request_file"]:
-            msg = pickle.loads(await reader.read(msg_length))
+            msg = pickle.loads(await reader.readexactly(msg_length))
             print(f"{client_ip} request file {msg['file_path']} blk:{msg['block_index']}")
             await self._event_listener["on_request_file"](writer, msg["file_path"], msg["block_index"])
         else:
@@ -112,13 +112,13 @@ class PeerMgr:
         writer.write(data)
         await writer.drain()
         # receive response
-        msg_type = MsgType(int.from_bytes(await reader.read(1), "big"))
-        msg_length = int.from_bytes(await reader.read(8), "big")
+        msg_type = MsgType(int.from_bytes(await reader.readexactly(1), "big"))
+        msg_length = int.from_bytes(await reader.readexactly(8), "big")
         if msg_type != MsgType.RES_INDEX:
             writer.close()
             print(f"Invalid response from {ip}")
             raise Exception("Invalid response")
-        file_index = pickle.loads(await reader.read(msg_length))
+        file_index = pickle.loads(await reader.readexactly(msg_length))
         writer.close()
         return file_index
 
@@ -132,13 +132,13 @@ class PeerMgr:
         writer.write(data)
         await writer.drain()
         # receive response
-        msg_type = MsgType(int.from_bytes(await reader.read(1), "big"))
-        msg_length = int.from_bytes(await reader.read(8), "big")
+        msg_type = MsgType(int.from_bytes(await reader.readexactly(1), "big"))
+        msg_length = int.from_bytes(await reader.readexactly(8), "big")
         if msg_type != MsgType.RES_INDEX_UPDATE:
             writer.close()
             print(f"Invalid response from {ip}")
             raise Exception("Invalid response")
-        _ = await reader.read(msg_length)
+        _ = await reader.readexactly(msg_length)
         writer.close()
 
     async def request_file(self, ip: str, file: str, block_index: int, block_size: int):
@@ -154,21 +154,22 @@ class PeerMgr:
         writer.write(data)
         await writer.drain()
         # receive response
-        msg_type = MsgType(int.from_bytes(await reader.read(1), "big"))
-        msg_length = int.from_bytes(await reader.read(8), "big")
+        msg_type = MsgType(int.from_bytes(await reader.readexactly(1), "big"))
+        msg_length = int.from_bytes(await reader.readexactly(8), "big")
         if msg_type != MsgType.RES_FILE:
             writer.close()
             print(f"Invalid response from {ip}")
             raise Exception("Invalid response")
         # write file
-        with open(file, mode="w+b") as f:
+        with open(file, mode="wb+") as f:
             f.seek(block_index * block_size)
-            data = await reader.read(msg_length)
+            data = await reader.readexactly(msg_length)
+            # print(f"message_length: {msg_length} received: {len(data)}")
             if self._compression:
                 data = zlib.decompress(data)
             f.write(data)
             f.close()
         # on file written callback
-        if self._event_listener["on_file_written"]:
-            await self._event_listener["on_file_written"](file)
+        # if self._event_listener["on_file_written"]:
+        #     await self._event_listener["on_file_written"](file)
         writer.close()

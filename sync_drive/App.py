@@ -27,7 +27,6 @@ class App:
         # set callbacks
         self._file_mgr.set_event_listener("on_file_change", self.file_change_handler)
         self._peer_mgr.set_event_listener("on_started", self.peer_mgr_started_handler)
-        self._peer_mgr.set_event_listener("on_file_written", self.file_written_handler)
         self._peer_mgr.set_event_listener("on_request_index", self.request_index_handler)
         self._peer_mgr.set_event_listener("on_request_index_update", self.request_index_update_handler)
         self._peer_mgr.set_event_listener("on_request_file", self.request_file_handler)
@@ -55,7 +54,7 @@ class App:
             try:
                 await self._peer_mgr.request_index_update(ip, changed_index)
             except:
-                print(f"Failed connect to {ip} for index update")
+                print(f"Failed update index of {ip}")
 
     async def peer_mgr_started_handler(self):
         for ip in self._peer_mgr.peers:
@@ -63,9 +62,10 @@ class App:
                 index = await self._peer_mgr.request_index(ip, self._file_mgr.file_index)
                 await self.sync(index, ip)
             except:
-                print(f"Failed connect to {ip} for index exchange")
+                print(f"Failed exchange index with {ip}")
 
-    async def file_written_handler(self, file: str):
+    async def finish_file_write(self, file: str):
+        print(f"{file} download complete")
         # set file modified time
         mod_time = self._file_mgr.file_index[file]["modified_time"]
         os.utime(file, (mod_time, mod_time))
@@ -81,8 +81,9 @@ class App:
         writer.write(int.to_bytes(MsgType.RES_INDEX.value, 1, "big"))
         writer.write(int.to_bytes(len(local_index), 8, "big"))
         writer.write(local_index)
-        await writer.drain()
-        writer.close()
+        writer.write_eof()
+        # await writer.drain()
+        # writer.close()
         await self.sync(client_index, client_ip)
 
     async def sync(self, client_index: dict, client_ip: str):
@@ -131,8 +132,12 @@ class App:
                 "status": FileStatus.WRITING,
                 "hash": info["hash"]
             })
-            for i in range(len(info["hash"])):
-                await self._peer_mgr.request_file(client_ip, path, i, config.file_block_size)
+            try:
+                for i in range(len(info["hash"])):
+                    await self._peer_mgr.request_file(client_ip, path, i, config.file_block_size)
+                await self.finish_file_write(path)
+            except:
+                print(f"Failed sync {path} from {client_ip}")
 
     async def sync_modified_file(self, files: list, client_ip: str):
         for path, info, index in files:
@@ -142,8 +147,12 @@ class App:
                 "status": FileStatus.WRITING,
                 "hash": info["hash"]
             })
-            for i in index:
-                await self._peer_mgr.request_file(client_ip, path, i, config.file_block_size)
+            try:
+                for i in index:
+                    await self._peer_mgr.request_file(client_ip, path, i, config.file_block_size)
+                await self.finish_file_write(path)
+            except:
+                print(f"Failed sync {path} from {client_ip}")
 
     async def request_index_update_handler(self, writer: StreamWriter, client_index: dict):
         client_ip = writer.get_extra_info("peername")[0]
@@ -152,8 +161,9 @@ class App:
         writer.write(int.to_bytes(MsgType.RES_INDEX_UPDATE.value, 1, "big"))
         writer.write(int.to_bytes(len(data), 8, "big"))
         writer.write(data)
-        await writer.drain()
-        writer.close()
+        writer.write_eof()
+        # await writer.drain()
+        # writer.close()
         await self.sync(client_index, client_ip)
 
     async def request_file_handler(self, writer: StreamWriter, file_path: str, block_index: int):
@@ -165,5 +175,6 @@ class App:
         writer.write(int.to_bytes(MsgType.RES_FILE.value, 1, "big"))
         writer.write(int.to_bytes(len(data), 8, "big"))
         writer.write(data)
-        await writer.drain()
-        writer.close()
+        writer.write_eof()
+        # await writer.drain()
+        # writer.close()
