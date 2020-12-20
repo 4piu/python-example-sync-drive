@@ -110,7 +110,7 @@ class PeerMgr:
         data = pickle.dumps(local_index)
         writer.write(int.to_bytes(len(data), 8, "big"))
         writer.write(data)
-        await writer.drain()
+        # await writer.drain()
         # receive response
         msg_type = MsgType(int.from_bytes(await reader.readexactly(1), "big"))
         msg_length = int.from_bytes(await reader.readexactly(8), "big")
@@ -130,7 +130,7 @@ class PeerMgr:
         data = pickle.dumps(changed_index)
         writer.write(int.to_bytes(len(data), 8, "big"))
         writer.write(data)
-        await writer.drain()
+        # await writer.drain()
         # receive response
         msg_type = MsgType(int.from_bytes(await reader.readexactly(1), "big"))
         msg_length = int.from_bytes(await reader.readexactly(8), "big")
@@ -152,7 +152,7 @@ class PeerMgr:
         })
         writer.write(int.to_bytes(len(data), 8, "big"))
         writer.write(data)
-        await writer.drain()
+        # await writer.drain()
         # receive response
         msg_type = MsgType(int.from_bytes(await reader.readexactly(1), "big"))
         msg_length = int.from_bytes(await reader.readexactly(8), "big")
@@ -161,7 +161,7 @@ class PeerMgr:
             print(f"Invalid response from {ip}")
             raise Exception("Invalid response")
         # write file
-        with open(file, mode="wb+") as f:
+        with open(file, mode="r+b") as f:
             f.seek(block_index * block_size)
             data = await reader.readexactly(msg_length)
             # print(f"message_length: {msg_length} received: {len(data)}")
