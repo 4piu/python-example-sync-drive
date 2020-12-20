@@ -27,6 +27,7 @@ class App:
         # set callbacks
         self._file_mgr.set_event_listener("on_file_change", self.file_change_handler)
         self._peer_mgr.set_event_listener("on_started", self.peer_mgr_started_handler)
+        self._peer_mgr.set_event_listener("on_file_written", self.file_written_handler)
         self._peer_mgr.set_event_listener("on_request_index", self.request_index_handler)
         self._peer_mgr.set_event_listener("on_request_index_update", self.request_index_update_handler)
         self._peer_mgr.set_event_listener("on_request_file", self.request_file_handler)

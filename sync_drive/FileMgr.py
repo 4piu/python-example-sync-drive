@@ -127,12 +127,13 @@ class FileMgr:
                             "is_file": False
                         }
                 else:
-                    local = self.file_index[path]
-                    if local["is_file"] and local["status"] != FileStatus.WRITING and local[
-                        "modified_time"] < item.stat().st_mtime:  # modified item
+                    if self.file_index[path]["is_file"] and self.file_index[path]["status"] != FileStatus.WRITING and \
+                            (self.file_index[path]["modified_time"] < item.stat().st_mtime or self.file_index[path][
+                                "size"] != item.stat().st_size):  # modified item
                         print(f"Found modified item: {path}")
                         changed_items.append((item, "mod"))
-                        local.update({
+                        # update index
+                        self.file_index[path].update({
                             "status": FileStatus.HASHING,
                             "size": item.stat().st_size,
                             "modified_time": item.stat().st_mtime
@@ -148,5 +149,9 @@ class FileMgr:
 # multi proc
 def get_file_hash(file: Path, blk_begin: int, blk_end: int) -> bytes:
     with open(file, "rb") as f:
-        f.seek(blk_begin)
-        return hashlib.md5(f.read(blk_end - blk_begin + 1)).digest()
+        try:
+            f.seek(blk_begin)
+            return hashlib.md5(f.read(blk_end - blk_begin + 1)).digest()
+        except:
+            print(f"Cannot hash {file}")
+            pass
