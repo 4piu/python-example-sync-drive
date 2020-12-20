@@ -1,9 +1,11 @@
 import asyncio
+import functools
 import os
 import pickle
 import zlib
 from asyncio import StreamWriter
 from asyncore import loop
+from concurrent.futures.thread import ThreadPoolExecutor
 from pathlib import Path
 
 import config
@@ -20,10 +22,10 @@ class App:
         self._file_mgr = FileMgr(Path(kwargs["working_dir"]), config.file_block_size)
         self._peer_mgr = PeerMgr(kwargs["peer_ips"], config.listen_port, compression=config.enable_gzip,
                                  encryption=kwargs["encryption"], psk=kwargs["psk"])
-
-    def run(self):
         self._loop = asyncio.new_event_loop()
         asyncio.set_event_loop(self._loop)
+
+    def run(self):
         # set callbacks
         self._file_mgr.set_event_listener("on_file_change", self.file_change_handler)
         self._peer_mgr.set_event_listener("on_started", self.peer_mgr_started_handler)
@@ -82,8 +84,6 @@ class App:
         writer.write(int.to_bytes(len(local_index), 8, "big"))
         writer.write(local_index)
         writer.write_eof()
-        # await writer.drain()
-        # writer.close()
         await self.sync(client_index, client_ip)
 
     async def sync(self, client_index: dict, client_ip: str):
@@ -120,10 +120,13 @@ class App:
             await self._file_mgr.update_file_index(path, {"is_file": False})
 
     async def sync_new_file(self, files: list, client_ip: str):
-        for path, info in files:
+        def create_file(path: str):
             # create empty file
             with open(path, "wb+") as f:
                 f.truncate(info["size"])
+
+        for path, info in files:
+            await self._loop.run_in_executor(None, functools.partial(create_file, path=path))
             # add index
             await self._file_mgr.update_file_index(path, {
                 "is_file": True,
@@ -162,19 +165,19 @@ class App:
         writer.write(int.to_bytes(len(data), 8, "big"))
         writer.write(data)
         writer.write_eof()
-        # await writer.drain()
-        # writer.close()
         await self.sync(client_index, client_ip)
 
     async def request_file_handler(self, writer: StreamWriter, file_path: str, block_index: int):
-        with open(file_path, mode="r+b") as f:
-            f.seek(block_index * config.file_block_size)
-            data = f.read(config.file_block_size)
-        if config.enable_gzip:
-            data = zlib.compress(data)
+        def read_file():
+            with open(file_path, mode="r+b") as f:
+                f.seek(block_index * config.file_block_size)
+                data = f.read(config.file_block_size)
+            if config.enable_gzip:
+                data = zlib.compress(data)
+            return data
+
+        data = await self._loop.run_in_executor(None, read_file)
         writer.write(int.to_bytes(MsgType.RES_FILE.value, 1, "big"))
         writer.write(int.to_bytes(len(data), 8, "big"))
         writer.write(data)
         writer.write_eof()
-        # await writer.drain()
-        # writer.close()

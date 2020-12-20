@@ -1,8 +1,10 @@
 import asyncio
+import functools
 import pickle
 import zlib
 from asyncio import StreamWriter, StreamReader
 from asyncio.base_events import Server
+from concurrent.futures.thread import ThreadPoolExecutor
 from enum import Enum
 from typing import Callable
 
@@ -152,7 +154,6 @@ class PeerMgr:
         })
         writer.write(int.to_bytes(len(data), 8, "big"))
         writer.write(data)
-        # await writer.drain()
         # receive response
         msg_type = MsgType(int.from_bytes(await reader.readexactly(1), "big"))
         msg_length = int.from_bytes(await reader.readexactly(8), "big")
@@ -160,16 +161,14 @@ class PeerMgr:
             writer.close()
             print(f"Invalid response from {ip}")
             raise Exception("Invalid response")
+        data = await reader.readexactly(msg_length)
         # write file
-        with open(file, mode="r+b") as f:
-            f.seek(block_index * block_size)
-            data = await reader.readexactly(msg_length)
-            # print(f"message_length: {msg_length} received: {len(data)}")
+        def write_file(data):
             if self._compression:
                 data = zlib.decompress(data)
-            f.write(data)
-            f.close()
-        # on file written callback
-        # if self._event_listener["on_file_written"]:
-        #     await self._event_listener["on_file_written"](file)
+            with open(file, mode="r+b") as f:
+                f.seek(block_index * block_size)
+                f.write(data)
+                f.close()
+        await asyncio.get_event_loop().run_in_executor(None, functools.partial(write_file, data=data))
         writer.close()
