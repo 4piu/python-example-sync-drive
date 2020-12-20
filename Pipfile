@@ -6,6 +6,7 @@ name = "pypi"
 [packages]
 
 [dev-packages]
+paramiko = "*"
 
 [requires]
 python_version = "3.8"

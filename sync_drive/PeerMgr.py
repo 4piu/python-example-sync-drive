@@ -33,6 +33,7 @@ class PeerMgr:
         self._compression = compression
         self._psk = psk
         self._event_listener = {
+            "on_started": None,
             "on_request_index": None,
             "on_request_index_update": None,
             "on_request_file": None
@@ -49,6 +50,8 @@ class PeerMgr:
         self._server = loop.run_until_complete(
             asyncio.start_server(self._conn_handler, host="0.0.0.0", port=self._listen_port))
         print(f"Server listen on 0.0.0.0:{self._listen_port}")
+        if self._event_listener["on_started"]:
+            loop.run_until_complete(self._event_listener["on_started"]())
 
     def stop(self):
         print("Stopping PeerMgr")
@@ -75,7 +78,7 @@ class PeerMgr:
             raise e
 
     async def _conn_handler(self, reader: StreamReader, writer: StreamWriter):
-        client_ip = writer.get_extra_info('peername')
+        client_ip = writer.get_extra_info('peername')[0]
         if client_ip not in self.peers:  # only allow connection from peers
             writer.close()
             print(f"Refuse connection from {client_ip}")

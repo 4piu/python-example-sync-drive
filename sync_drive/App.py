@@ -20,11 +20,12 @@ class App:
         self._peer_mgr = PeerMgr(kwargs["peer_ips"], config.listen_port, compression=config.enable_gzip,
                                  encryption=kwargs["encryption"], psk=kwargs["psk"])
 
-    def run(self) -> None:
+    def run(self):
         self._loop = asyncio.new_event_loop()
         asyncio.set_event_loop(self._loop)
         # set callbacks
         self._file_mgr.set_event_listener("on_file_change", self.file_change_handler)
+        self._peer_mgr.set_event_listener("on_started", self.peer_mgr_started_handler)
         self._peer_mgr.set_event_listener("on_request_index", self.request_index_handler)
         self._peer_mgr.set_event_listener("on_request_index_update", self.request_index_update_handler)
         self._peer_mgr.set_event_listener("on_request_file", self.request_file_handler)
@@ -56,10 +57,13 @@ class App:
 
     async def peer_mgr_started_handler(self):
         for ip in self._peer_mgr.peers:
-            await self._peer_mgr.request_index(ip, self._file_mgr.file_index)
+            try:
+                await self._peer_mgr.request_index(ip, self._file_mgr.file_index)
+            except:
+                pass
 
     async def request_index_handler(self, writer: StreamWriter, client_index: dict):
-        client_ip = writer.get_extra_info("peername")
+        client_ip = writer.get_extra_info("peername")[0]
         # response with local index
         local_index = pickle.dumps(self._file_mgr.file_index)
         writer.write(int.to_bytes(MsgType.RES_INDEX.value, 1, "big"))
@@ -74,7 +78,7 @@ class App:
         new_folders = list()
         new_files = list()
         modified_files = list()
-        for path, info in client_index:
+        for path, info in client_index.items():
             if path not in self._file_mgr.file_index:
                 if info["is_file"]:  # peer has new file
                     new_files.append((path, info))
@@ -110,7 +114,7 @@ class App:
                 await self._peer_mgr.request_file(client_ip, path, i, config.file_block_size)
 
     async def request_index_update_handler(self, writer: StreamWriter, client_index: dict):
-        client_ip = writer.get_extra_info("peername")
+        client_ip = writer.get_extra_info("peername")[0]
         # response
         data = b"OK"
         writer.write(int.to_bytes(MsgType.RES_INDEX_UPDATE.value, 1, "big"))
