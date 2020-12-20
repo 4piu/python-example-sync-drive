@@ -17,14 +17,14 @@ class FileMgr:
     _working_dir: Path
     _file_block_size: int
     _event_listener: dict
-    _file_index: dict
+    file_index: dict
 
     def __init__(self, working_dir: Path, file_block_size: int):
         self._event_listener = {
             "on_file_change": None
         }
         # init file index
-        self._file_index = dict()
+        self.file_index = dict()
         self._proc_pool = Pool()
         self._working_dir = working_dir
         self._file_block_size = file_block_size
@@ -50,12 +50,12 @@ class FileMgr:
         for item in self._working_dir.rglob("*"):
             if item.is_dir():
                 # add dir to index
-                self._file_index[str(item)] = {
+                self.file_index[str(item)] = {
                     "is_file": False
                 }
             elif item.is_file():
                 # add file to index
-                self._file_index[str(item)] = {
+                self.file_index[str(item)] = {
                     "is_file": True,
                     "size": item.stat().st_size,
                     "modified_time": item.stat().st_mtime,
@@ -82,43 +82,47 @@ class FileMgr:
         for blk in split_number(file.stat().st_size, self._file_block_size):
             args.append((file, blk[0], blk[1]))
         # add hash to file index
-        self._file_index[str(file)].update({
+        self.file_index[str(file)].update({
             "hash": self._proc_pool.starmap(get_file_hash, args),
             "status": FileStatus.ADDED
         })
 
     async def update_file_index(self, file: str, prop: dict):
-        if file not in self._file_index.keys():
-            self._file_index[file] = prop
+        if file not in self.file_index:
+            self.file_index[file] = prop
         else:
-            self._file_index[file].update(prop)
+            self.file_index[file].update(prop)
+
+    async def till_hash_complete(self, file: Path):
+        while self.file_index[str(file)]["status"] == FileStatus.HASHING:
+            pass
 
     async def _scan_change(self):
         while True:
+            changed_items = list()
             for item in self._working_dir.rglob("*"):
-                flag = False
                 path = str(item)
                 # compare index
-                if path not in self._file_index.keys():  # new item
+                if path not in self.file_index:  # new item
                     print(f"Found new item: {path}")
-                    flag = True
+                    changed_items.append((item, "new"))
                     if item.is_file():
-                        self._file_index[path] = {
+                        self.file_index[path] = {
                             "is_file": True,
                             "size": item.stat().st_size,
                             "modified_time": item.stat().st_mtime,
                             "status": FileStatus.HASHING
                         }
                     elif item.is_dir():
-                        self._file_index[path] = {
+                        self.file_index[path] = {
                             "is_file": False
                         }
                 else:
-                    local = self._file_index[path]
+                    local = self.file_index[path]
                     if local["is_file"] and local["status"] != FileStatus.WRITING and local[
                         "modified_time"] < item.stat().st_mtime:  # modified item
                         print(f"Found modified item: {path}")
-                        flag = True
+                        changed_items.append((item, "mod"))
                         local.update({
                             "status": FileStatus.HASHING,
                             "size": item.stat().st_size,
@@ -126,9 +130,9 @@ class FileMgr:
                         })
                         # hash file (don't wait)
                         asyncio.get_event_loop().create_task(self._hash_file(item))
-                # invoke callback if item changed
-                if flag and self._event_listener["on_file_change"]:
-                    asyncio.get_event_loop().create_task(self._event_listener["on_file_change"](item))
+            # invoke callback if item changed
+            if len(changed_items) > 0 and self._event_listener["on_file_change"]:
+                asyncio.get_event_loop().create_task(self._event_listener["on_file_change"](changed_items))
             await asyncio.sleep(.1)
 
 

@@ -23,7 +23,7 @@ class PeerMgr:
     _encryption: bool
     _compression: bool
     _psk: bytes
-    _peers: dict
+    peers: dict
     _event_listener: dict
     _listen_port: int
 
@@ -38,10 +38,10 @@ class PeerMgr:
             "on_request_file": None
         }
         self._listen_port = listen_port
-        self._peers = dict()
+        self.peers = dict()
         # init peer sockets
         for ip in peers:
-            self._peers[ip] = {"is_online": False}
+            self.peers[ip] = {"is_online": False}
 
     def run(self):
         loop = asyncio.get_event_loop()
@@ -62,13 +62,13 @@ class PeerMgr:
     async def _get_peer_conn(self, ip: str) -> (StreamReader, StreamWriter):
         try:
             reader, writer = await asyncio.open_connection(host=ip, port=self._listen_port)
-            self._peers[ip].update({
+            self.peers[ip].update({
                 "is_online": True
             })
             print(f"Connected to {ip} successfully")
             return reader, writer
         except Exception as e:
-            self._peers[ip].update({
+            self.peers[ip].update({
                 "is_online": False
             })
             print(f"Connect to {ip} failed")
@@ -76,12 +76,12 @@ class PeerMgr:
 
     async def _conn_handler(self, reader: StreamReader, writer: StreamWriter):
         client_ip = writer.get_extra_info('peername')
-        if client_ip not in self._peers.keys():  # only allow connection from peers
+        if client_ip not in self.peers:  # only allow connection from peers
             writer.close()
             print(f"Refuse connection from {client_ip}")
         print(f"Connection from {client_ip}")
         # update online status
-        self._peers[client_ip].update({
+        self.peers[client_ip].update({
             "is_online": True
         })
         # get message
@@ -89,22 +89,22 @@ class PeerMgr:
         msg_length = int.from_bytes(await reader.read(8), "big")
         if msg_type == MsgType.REQ_INDEX and self._event_listener["on_request_index"]:
             client_index = pickle.loads(await reader.read(msg_length))
-            await self._event_listener["on_request_index"](reader, writer, client_index)
+            await self._event_listener["on_request_index"](writer, client_index)
         elif msg_type == MsgType.REQ_INDEX_UPDATE and self._event_listener["on_request_index_update"]:
             client_index = pickle.loads(await reader.read(msg_length))
-            await self._event_listener["on_request_index_update"](reader, writer, client_index)
+            await self._event_listener["on_request_index_update"](writer, client_index)
         elif msg_type == MsgType.REQ_FILE and self._event_listener["on_request_file"]:
             msg = pickle.loads(await reader.read(msg_length))
-            await self._event_listener["on_request_file"](reader, writer, msg["file_path"], msg["block_index"])
+            await self._event_listener["on_request_file"](writer, msg["file_path"], msg["block_index"])
         else:
             writer.close()
             print(f"Invalid message from {client_ip}")
 
-    async def request_index(self, ip: str, index: dict) -> dict:
+    async def request_index(self, ip: str, local_index: dict) -> dict:
         # send message
         reader, writer = await self._get_peer_conn(ip)
         writer.write(int.to_bytes(MsgType.REQ_INDEX.value, 1, "big"))
-        data = pickle.dumps(index)
+        data = pickle.dumps(local_index)
         writer.write(int.to_bytes(len(data), 8, "big"))
         writer.write(data)
         await writer.drain()
@@ -119,11 +119,11 @@ class PeerMgr:
         writer.close()
         return file_index
 
-    async def request_index_update(self, ip: str, index: dict):
+    async def request_index_update(self, ip: str, changed_index: dict):
         # send message
         reader, writer = await self._get_peer_conn(ip)
         writer.write(int.to_bytes(MsgType.REQ_INDEX_UPDATE.value, 1, "big"))
-        data = pickle.dumps(index)
+        data = pickle.dumps(changed_index)
         writer.write(int.to_bytes(len(data), 8, "big"))
         writer.write(data)
         await writer.drain()
@@ -137,14 +137,12 @@ class PeerMgr:
         _ = await reader.read(msg_length)
         writer.close()
 
-    async def request_file(self, ip: str, file: Path,
-                           output_file_handle: BufferedRandom,
-                           block_index: int, block_size: int):
+    async def request_file(self, ip: str, file: str, block_index: int, block_size: int):
         # send message
         reader, writer = await self._get_peer_conn(ip)
         writer.write(int.to_bytes(MsgType.REQ_FILE.value, 1, "big"))
         data = pickle.dumps({
-            "file_path": str(file),
+            "file_path": file,
             "block_index": block_index
         })
         writer.write(int.to_bytes(len(data), 8, "big"))
@@ -157,10 +155,11 @@ class PeerMgr:
             writer.close()
             print(f"Invalid response from {ip}")
             raise Exception("Invalid response")
-        output_file_handle.seek(block_index * block_size)
-        data = await reader.read(block_size)
-        if self._compression:
-            data = zlib.decompress(data)
-        output_file_handle.write(data)
-        output_file_handle.close()
+        with open(file, mode="r+b") as f:
+            f.seek(block_index * block_size)
+            data = await reader.read(block_size)
+            if self._compression:
+                data = zlib.decompress(data)
+            f.write(data)
+            f.close()
         writer.close()
