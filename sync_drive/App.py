@@ -1,11 +1,15 @@
 import asyncio
 import functools
+import hashlib
 import os
 import pickle
 import zlib
 from asyncio import StreamWriter, Semaphore
 from asyncore import loop
 from pathlib import Path
+
+from Crypto.Cipher import AES
+from Crypto.Random import get_random_bytes
 
 import config
 from sync_drive.FileMgr import FileMgr, FileStatus
@@ -19,12 +23,15 @@ class App:
     _semaphore: Semaphore
 
     def __init__(self, **kwargs):
-        self._file_mgr = FileMgr(Path(kwargs["working_dir"]), config.file_block_size)
-        self._peer_mgr = PeerMgr(kwargs["peer_ips"], config.listen_port, compression=config.enable_gzip,
-                                 encryption=kwargs["encryption"], psk=kwargs["psk"])
+        # init event loop
         self._loop = asyncio.new_event_loop()
         asyncio.set_event_loop(self._loop)
         self._semaphore = Semaphore(config.concurrent_downloading)
+        # init managers
+        self._file_mgr = FileMgr(Path(kwargs["working_dir"]), config.file_block_size)
+        self._peer_mgr = PeerMgr(kwargs["peer_ips"], config.listen_port, compression=config.enable_gzip,
+                                 encryption=kwargs["encryption"], psk=kwargs["psk"])
+        self._encryption = kwargs["encryption"]
 
     def run(self):
         # set callbacks
@@ -57,6 +64,7 @@ class App:
             try:
                 await self._peer_mgr.request_index_update(ip, changed_index)
             except:
+                # traceback.print_exc()
                 print(f"Failed update index of {ip}")
 
     async def peer_mgr_started_handler(self):
@@ -65,6 +73,7 @@ class App:
                 index = await self._peer_mgr.request_index(ip, self._file_mgr.file_index)
                 await self.sync(index, ip)
             except:
+                # traceback.print_exc()
                 print(f"Failed exchange index with {ip}")
 
     async def finish_file_write(self, file: str):
@@ -127,6 +136,7 @@ class App:
                     await self._peer_mgr.request_file(client_ip, path, i, config.file_block_size)
                 await self.finish_file_write(path)
             except:
+                # traceback.print_exc()
                 print(f"Failed sync {path} from {client_ip}")
 
     async def sync_new_file(self, files: list, client_ip: str):
@@ -173,6 +183,7 @@ class App:
         await self.sync(client_index, client_ip)
 
     async def request_file_handler(self, writer: StreamWriter, file_path: str, block_index: int):
+        # read data
         def read_file():
             with open(file_path, mode="r+b") as f:
                 f.seek(block_index * config.file_block_size)
@@ -182,6 +193,21 @@ class App:
             return data
 
         data = await self._loop.run_in_executor(None, read_file)
+
+        # encryption
+        if self._encryption:
+            salt = get_random_bytes(AES.block_size)
+            pk = hashlib.scrypt(config.pre_shared_key, salt=salt, n=2 ** 14, r=8, p=1, dklen=32)
+            cipher_config = AES.new(pk, AES.MODE_GCM)
+            encrypted, tag = cipher_config.encrypt_and_digest(data)
+            msg = pickle.dumps({
+                "salt": salt,
+                "cipher": encrypted,
+                "tag": tag,
+                "nonce": cipher_config.nonce
+            })
+            data = msg
+
         writer.write(int.to_bytes(MsgType.RES_FILE.value, 1, "big"))
         writer.write(int.to_bytes(len(data), 8, "big"))
         writer.write(data)

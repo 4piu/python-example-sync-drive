@@ -1,12 +1,14 @@
 import asyncio
 import functools
+import hashlib
 import pickle
 import zlib
 from asyncio import StreamWriter, StreamReader
 from asyncio.base_events import Server
-from concurrent.futures.thread import ThreadPoolExecutor
 from enum import Enum
 from typing import Callable
+
+from Crypto.Cipher import AES
 
 
 class MsgType(Enum):
@@ -162,13 +164,23 @@ class PeerMgr:
             print(f"Invalid response from {ip}")
             raise Exception("Invalid response")
         data = await reader.readexactly(msg_length)
+
+        # decryption
+        if self._encryption:
+            msg = pickle.loads(data)
+            pk = hashlib.scrypt(self._psk, salt=msg["salt"], n=2 ** 14, r=8, p=1, dklen=32)
+            cipher_config = AES.new(pk, AES.MODE_GCM, nonce=msg["nonce"])
+            decrypted = cipher_config.decrypt_and_verify(msg["cipher"], msg["tag"])
+            data = decrypted
+
         # write file
-        def write_file(data):
+        def write_file(data: bytes):
             if self._compression:
                 data = zlib.decompress(data)
             with open(file, mode="r+b") as f:
                 f.seek(block_index * block_size)
                 f.write(data)
                 f.close()
+
         await asyncio.get_event_loop().run_in_executor(None, functools.partial(write_file, data=data))
         writer.close()
