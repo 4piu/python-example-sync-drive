@@ -163,8 +163,12 @@ class App:
         await asyncio.gather(*tasks)
 
     async def sync_modified_file(self, files: list, client_ip: str):
+        def rename_file(path: str):
+            Path(path).rename(path + ".dl_partial")
+
         tasks = list()
         for path, info, indices in files:
+            await self._loop.run_in_executor(None, functools.partial(rename_file, path=path))
             # update index
             await self._file_mgr.update_file_index(path, {
                 "modified_time": info["modified_time"],
