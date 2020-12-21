@@ -52,8 +52,8 @@ def init(ssh: SSHClient, sftp: SFTPClient):
 
 
 def main():
-    # connect
     try:
+        # connect
         ssh_a = SSHClient()
         ssh_b = SSHClient()
         ssh_c = SSHClient()
@@ -66,10 +66,13 @@ def main():
         sftp_a = ssh_a.open_sftp()
         sftp_b = ssh_b.open_sftp()
         sftp_c = ssh_c.open_sftp()
-
+        # init
         init(ssh_a, sftp_a)
         init(ssh_b, sftp_b)
         init(ssh_c, sftp_c)
+        # start
+
+        # test
     except:
         traceback.print_exc()
 
