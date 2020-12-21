@@ -177,7 +177,7 @@ class PeerMgr:
         def write_file(data: bytes):
             if self._compression:
                 data = zlib.decompress(data)
-            with open(file, mode="r+b") as f:
+            with open(file + ".dl_partial", mode="r+b") as f:
                 f.seek(block_index * block_size)
                 f.write(data)
                 f.close()

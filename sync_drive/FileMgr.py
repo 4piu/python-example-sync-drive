@@ -104,7 +104,8 @@ class FileMgr:
         while True:
             changed_items = list()
             for item in self._working_dir.rglob("*"):
-                if item.name.startswith("."):  # ignore hidden file
+                # ignore hidden file and partial file
+                if item.name.startswith(".") or item.name.endswith(".dl_partial"):
                     continue
                 path = str(item)
                 # compare index

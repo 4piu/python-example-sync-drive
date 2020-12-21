@@ -80,6 +80,8 @@ class App:
         print(f"{file} download complete")
         # set file modified time
         mod_time = self._file_mgr.file_index[file]["modified_time"]
+        # restore name
+        Path(file + ".dl_partial").rename(file)
         os.utime(file, (mod_time, mod_time))
         # set file index
         await self._file_mgr.update_file_index(file, {
@@ -142,7 +144,7 @@ class App:
     async def sync_new_file(self, files: list, client_ip: str):
         def create_file(path: str):
             # create empty file
-            with open(path, "wb+") as f:
+            with open(path + ".dl_partial", "wb+") as f:
                 f.truncate(info["size"])
 
         tasks = list()
