@@ -3,9 +3,8 @@ import functools
 import os
 import pickle
 import zlib
-from asyncio import StreamWriter
+from asyncio import StreamWriter, Semaphore
 from asyncore import loop
-from concurrent.futures.thread import ThreadPoolExecutor
 from pathlib import Path
 
 import config
@@ -17,6 +16,7 @@ class App:
     _loop: loop
     _file_mgr: FileMgr
     _peer_mgr: PeerMgr
+    _semaphore: Semaphore
 
     def __init__(self, **kwargs):
         self._file_mgr = FileMgr(Path(kwargs["working_dir"]), config.file_block_size)
@@ -24,6 +24,7 @@ class App:
                                  encryption=kwargs["encryption"], psk=kwargs["psk"])
         self._loop = asyncio.new_event_loop()
         asyncio.set_event_loop(self._loop)
+        self._semaphore = Semaphore(config.concurrent_downloading)
 
     def run(self):
         # set callbacks
@@ -94,18 +95,18 @@ class App:
         for path, info in client_index.items():
             if path not in self._file_mgr.file_index:
                 if info["is_file"]:  # peer has new file
-                    new_files.append((path, info))
+                    new_files.append((path, info, range(len(info["hash"]))))
                 else:  # peer has new folder
                     new_folders.append(path)
             elif info["is_file"] and info["modified_time"] > self._file_mgr.file_index[path]["modified_time"]:
                 if info["size"] == self._file_mgr.file_index[path]["size"]:  # peer has modified file
-                    index = list()
+                    indices = list()
                     for i in range(len(info["hash"])):
                         if info["hash"][i] != self._file_mgr.file_index[path]["hash"][i]:
-                            index.append(i)
-                    modified_files.append((path, info, index))
+                            indices.append(i)
+                    modified_files.append((path, info, indices))
                 else:  # treat as new file
-                    new_files.append((path, info))
+                    new_files.append((path, info, range(len(info["hash"]))))
         await self.sync_new_folder(new_folders)  # make new folders
         asyncio.get_event_loop().create_task(self.sync_new_file(new_files, client_ip))  # request missing files
         asyncio.get_event_loop().create_task(
@@ -119,13 +120,23 @@ class App:
             # add index
             await self._file_mgr.update_file_index(path, {"is_file": False})
 
+    async def request_file(self, client_ip: str, path: str, indices: iter):
+        async with self._semaphore:
+            try:
+                for i in indices:
+                    await self._peer_mgr.request_file(client_ip, path, i, config.file_block_size)
+                await self.finish_file_write(path)
+            except:
+                print(f"Failed sync {path} from {client_ip}")
+
     async def sync_new_file(self, files: list, client_ip: str):
         def create_file(path: str):
             # create empty file
             with open(path, "wb+") as f:
                 f.truncate(info["size"])
 
-        for path, info in files:
+        tasks = list()
+        for path, info, indices in files:
             await self._loop.run_in_executor(None, functools.partial(create_file, path=path))
             # add index
             await self._file_mgr.update_file_index(path, {
@@ -135,27 +146,21 @@ class App:
                 "status": FileStatus.WRITING,
                 "hash": info["hash"]
             })
-            try:
-                for i in range(len(info["hash"])):
-                    await self._peer_mgr.request_file(client_ip, path, i, config.file_block_size)
-                await self.finish_file_write(path)
-            except:
-                print(f"Failed sync {path} from {client_ip}")
+            tasks = list()
+            tasks.append(self.request_file(client_ip, path, indices))
+        await asyncio.gather(*tasks)
 
     async def sync_modified_file(self, files: list, client_ip: str):
-        for path, info, index in files:
+        tasks = list()
+        for path, info, indices in files:
             # update index
             await self._file_mgr.update_file_index(path, {
                 "modified_time": info["modified_time"],
                 "status": FileStatus.WRITING,
                 "hash": info["hash"]
             })
-            try:
-                for i in index:
-                    await self._peer_mgr.request_file(client_ip, path, i, config.file_block_size)
-                await self.finish_file_write(path)
-            except:
-                print(f"Failed sync {path} from {client_ip}")
+            tasks.append(self.request_file(client_ip, path, indices))
+        await asyncio.gather(*tasks)
 
     async def request_index_update_handler(self, writer: StreamWriter, client_index: dict):
         client_ip = writer.get_extra_info("peername")[0]
