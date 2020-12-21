@@ -1,5 +1,6 @@
 import asyncio
 import hashlib
+import os
 from enum import Enum
 from multiprocessing import Pool
 from pathlib import Path
@@ -31,6 +32,9 @@ class FileMgr:
         # create working dir if not exists
         if not Path(working_dir).exists():
             Path.mkdir(working_dir)
+        # clear temp file
+        for tmp in Path(working_dir).rglob("*.dl_partial"):
+            os.remove(tmp)
 
     def run(self):
         loop = asyncio.get_event_loop()
