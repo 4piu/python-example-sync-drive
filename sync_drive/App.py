@@ -68,13 +68,15 @@ class App:
                 print(f"Failed update index of {ip}")
 
     async def peer_mgr_started_handler(self):
-        for ip in self._peer_mgr.peers:
+        async def connect_and_sync(ip: str):
             try:
                 index = await self._peer_mgr.request_index(ip, self._file_mgr.file_index)
                 await self.sync(index, ip)
             except:
-                # traceback.print_exc()
                 print(f"Failed exchange index with {ip}")
+
+        for ip in self._peer_mgr.peers:
+            self._loop.create_task(connect_and_sync(ip))
 
     async def finish_file_write(self, file: str):
         print(f"{file} download complete")
