@@ -44,10 +44,6 @@ class FileMgr:
         loop.create_task(self._scan_change())
         print("File watcher started")
 
-    def stop(self):
-        print("Stopping FileMgr")
-        self._proc_pool_executor.shutdown()
-
     def set_event_listener(self, event: str, callback: Callable):
         self._event_listener[event] = callback
 

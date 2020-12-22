@@ -3,6 +3,7 @@ import functools
 import hashlib
 import os
 import pickle
+import signal
 import zlib
 from asyncio import StreamWriter, Semaphore
 from asyncore import loop
@@ -17,6 +18,7 @@ from sync_drive.PeerMgr import PeerMgr, MsgType
 
 
 class App:
+    _exiting = False
     _loop: loop
     _file_mgr: FileMgr
     _peer_mgr: PeerMgr
@@ -32,6 +34,8 @@ class App:
         self._peer_mgr = PeerMgr(kwargs["peer_ips"], config.listen_port, compression=config.enable_gzip,
                                  encryption=kwargs["encryption"], psk=kwargs["psk"])
         self._encryption = kwargs["encryption"]
+        # sig int handler
+        self._loop.add_signal_handler(signal.SIGINT, self.stop)
 
     def run(self):
         # set callbacks
@@ -46,11 +50,13 @@ class App:
         self._loop.run_forever()
 
     def stop(self):
-        print("\nStopping app")
-        self._file_mgr.stop()
-        self._peer_mgr.stop()
-        self._loop.stop()
-        print("App stopped")
+        if not self._exiting:
+            self._exiting = True
+            print(f"\nStopping app")
+            for task in asyncio.Task.all_tasks():
+                task.cancel()
+            self._loop.stop()
+            print(f"App stopped")
 
     async def file_change_handler(self, changed_items: list):
         # build file change list

@@ -56,12 +56,6 @@ class PeerMgr:
         if self._event_listener["on_started"]:
             loop.run_until_complete(self._event_listener["on_started"]())
 
-    def stop(self):
-        print("Stopping PeerMgr")
-        # stop server
-        self._server.close()
-        asyncio.get_event_loop().run_until_complete(self._server.wait_closed())
-
     def set_event_listener(self, event: str, callback: Callable):
         self._event_listener[event] = callback
 

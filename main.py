@@ -6,7 +6,6 @@ from sync_drive.App import App
 
 
 def main():
-    app = None
     try:
         # parse args
         ips: list = sys.argv[sys.argv.index("--ip") + 1].split(",")
@@ -15,10 +14,6 @@ def main():
         # start main app loop
         app = App(peer_ips=ips, working_dir="./share", encryption=encryption, psk=config.pre_shared_key)
         app.run()
-    except KeyboardInterrupt:
-        # shut down gracefully
-        if app:
-            app.stop()
     except:
         traceback.print_exc()
         print("\nUsage example: main.py --ip 192.168.1.101,192.168.1.102 --encryption yes")
