@@ -1,6 +1,8 @@
 import asyncio
+import functools
 import hashlib
 import os
+from concurrent.futures.process import ProcessPoolExecutor
 from enum import Enum
 from multiprocessing import Pool
 from pathlib import Path
@@ -14,7 +16,7 @@ class FileStatus(Enum):
 
 
 class FileMgr:
-    _proc_pool: Pool
+    _proc_pool_executor: ProcessPoolExecutor
     _working_dir: Path
     _file_block_size: int
     _event_listener: dict
@@ -26,7 +28,7 @@ class FileMgr:
         }
         # init file index
         self.file_index = dict()
-        self._proc_pool = Pool()
+        self._proc_pool_executor = ProcessPoolExecutor()
         self._working_dir = working_dir
         self._file_block_size = file_block_size
         # create working dir if not exists
@@ -44,10 +46,7 @@ class FileMgr:
 
     def stop(self):
         print("Stopping FileMgr")
-        # stop file hash task
-        self._proc_pool.close()
-        self._proc_pool.terminate()
-        self._proc_pool.join()
+        self._proc_pool_executor.shutdown()
 
     def set_event_listener(self, event: str, callback: Callable):
         self._event_listener[event] = callback
@@ -85,12 +84,12 @@ class FileMgr:
             return ret
 
         # calculate file hash
-        args = list()
+        task = list()
         for blk in split_number(file.stat().st_size, self._file_block_size):
-            args.append((file, blk[0], blk[1]))
+            task.append(asyncio.get_event_loop().run_in_executor(self._proc_pool_executor, functools.partial(get_file_hash, file=file, blk_begin=blk[0], blk_end=blk[1])))
         # add hash to file index
         self.file_index[str(file)].update({
-            "hash": self._proc_pool.starmap(get_file_hash, args),
+            "hash": await asyncio.gather(*task),
             "status": FileStatus.ADDED
         })
 
@@ -158,4 +157,3 @@ def get_file_hash(file: Path, blk_begin: int, blk_end: int) -> bytes:
             return hashlib.md5(f.read(blk_end - blk_begin + 1)).digest()
         except:
             print(f"Cannot hash {file}")
-            pass
